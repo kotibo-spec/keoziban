@@ -1,22 +1,51 @@
 /**
- * Gemini APIを呼び出してレスを生成する
+ * スレッドのレスを生成する
  */
 export async function fetchAiResponses(apiKey, model, threadTitle, currentResCount, contextText, promptTemplate) {
-    
     const targetModel = model || "gemini-2.5-flash";
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${targetModel}:generateContent?key=${apiKey}`;
 
-    // プロンプトテンプレート内の変数を置換する
+    // プロンプト内の変数を置換
     let prompt = promptTemplate
         .replace(/{{TITLE}}/g, threadTitle)
         .replace(/{{RES_COUNT}}/g, currentResCount)
         .replace(/{{CONTEXT}}/g, contextText);
 
+    return await callGemini(url, prompt);
+}
+
+/**
+ * 新しいスレッドタイトルを生成する（新機能）
+ */
+export async function fetchAiThreads(apiKey, model) {
+    const targetModel = model || "gemini-2.5-flash";
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${targetModel}:generateContent?key=${apiKey}`;
+
+    const prompt = `
+あなたは日本の掲示板「5ch」の住人です。
+今、話題になりそうな、あるいは面白いスレッドのタイトルを「3つ」考えてください。
+ジャンルはバラバラにすること（ニュース、雑談、ネタ、相談、オカルトなど混ぜて）。
+
+【出力フォーマット】
+以下のJSON配列形式のみで出力してください。Markdown記号は禁止。
+
+[
+  {"title": "【悲報】ワイの夕飯、とんでもないことになる", "firstRes": "画像貼るからちょっと待ってろ"},
+  {"title": "AIが発達した結果ｗｗｗｗｗ", "firstRes": "仕事なくなったわ"},
+  {"title": "近所の廃墟に行ってきたけど質問ある？", "firstRes": "なんかガチでやばいもん見たかもしれん"}
+]
+    `;
+
+    return await callGemini(url, prompt);
+}
+
+/**
+ * Gemini呼び出し共通処理
+ */
+async function callGemini(url, promptText) {
     const body = {
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { 
-            responseMimeType: "application/json" 
-        },
+        contents: [{ parts: [{ text: promptText }] }],
+        generationConfig: { responseMimeType: "application/json" },
         safetySettings: [
             { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
             { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
@@ -39,14 +68,9 @@ export async function fetchAiResponses(apiKey, model, threadTitle, currentResCou
 
         const data = await response.json();
         
-        if (!data.candidates || data.candidates.length === 0) {
-            throw new Error("AIが回答を拒否しました");
-        }
-
+        if (!data.candidates || data.candidates.length === 0) throw new Error("AIが回答を拒否しました");
         const candidate = data.candidates[0];
-        if (!candidate.content || !candidate.content.parts || !candidate.content.parts[0].text) {
-             throw new Error("AIからの応答が空でした");
-        }
+        if (!candidate.content || !candidate.content.parts || !candidate.content.parts[0].text) throw new Error("AI応答が空でした");
 
         let text = candidate.content.parts[0].text;
         text = text.replace(/```json/g, '').replace(/```/g, '').trim();
@@ -55,7 +79,7 @@ export async function fetchAiResponses(apiKey, model, threadTitle, currentResCou
 
     } catch (e) {
         console.error(e);
-        alert("エラーが発生しました:\n" + e.message);
+        alert("エラー: " + e.message);
         return [];
     }
 }
