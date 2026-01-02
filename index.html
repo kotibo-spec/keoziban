@@ -13,10 +13,8 @@
     <header>
         <button id="back-btn" class="hidden">＜ 戻る</button>
         <h1 id="header-title">AI掲示板</h1>
-        
         <!-- 新着スレ取得ボタン -->
         <button id="refresh-threads-btn" style="margin-right:10px; font-size:18px;">🔄</button>
-        
         <button id="settings-btn">設定</button>
     </header>
 
@@ -28,13 +26,15 @@
 
     <!-- 2. レス表示画面 -->
     <div id="view-thread-detail" class="view hidden">
-        <div id="res-container" class="res-container" style="padding-bottom: 180px;"></div>
+        <div id="res-container" class="res-container" style="padding-bottom: 160px;"></div>
         
         <div class="controls">
+            <!-- ユーザー自身の書き込みエリア -->
             <div style="display:flex; gap:5px; margin-bottom:10px;">
                 <input type="text" id="user-res-input" placeholder="レスを書き込む..." style="flex:1; margin:0;">
                 <button id="user-post-btn" style="width:60px; background:#444; color:white; border-radius:4px;">書く</button>
             </div>
+            
             <button id="update-btn" class="action-btn">更新（AI書き込み）</button>
         </div>
     </div>
@@ -44,51 +44,38 @@
         <div class="modal-content" style="max-height:90vh; overflow-y:auto;">
             <h2>設定</h2>
             
-            <div class="setting-group">
-                <label>API Key</label>
-                <input type="password" id="api-key-input" placeholder="API Key">
-            </div>
+            <label class="label-title">API Key</label>
+            <input type="password" id="api-key-input" placeholder="API Key">
+            
+            <label class="label-title">モデル選択</label>
+            <input type="text" id="model-input" list="model-list" placeholder="gemini-2.5-flash">
+            <datalist id="model-list">
+                <option value="gemini-2.5-flash">
+                <option value="gemini-2.0-flash-exp">
+                <option value="gemini-1.5-flash">
+            </datalist>
 
-            <div class="setting-group">
-                <label>使用モデル</label>
-                <select id="model-select">
-                    <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
-                    <option value="gemini-2.0-flash-exp">Gemini 2.0 Flash Exp</option>
-                    <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
-                </select>
-            </div>
+            <hr style="margin: 20px 0; border:0; border-top:1px solid #ddd;">
 
-            <hr>
+            <!-- 設定細分化エリア -->
+            <label class="label-title">一度に生成するレス数: <span id="res-count-display" style="color:#007bff; font-weight:bold;">3</span></label>
+            <input type="range" id="res-count-slider" min="1" max="10" value="3" style="width:100%;">
+            
+            <label class="label-title" style="margin-top:15px;">住人の雰囲気（ロール）</label>
+            <select id="persona-select" style="width:100%; padding:10px; background:#fff; border:1px solid #ccc; border-radius:4px;">
+                <option value="mix">カオス（ごちゃ混ぜ）</option>
+                <option value="nanj">なんJ（猛虎弁・実況）</option>
+                <option value="vip">VIP（うはwww・おk）</option>
+                <option value="news">ニュース（～だろ・ソースは？）</option>
+                <option value="gal">女子（～だよね・わかるー）</option>
+                <option value="gentle">平和（敬語・まったり）</option>
+            </select>
 
-            <div class="setting-group">
-                <label>① 1回の更新レス数: <span id="res-count-display">3</span></label>
-                <input type="range" id="res-count-slider" min="1" max="10" value="3" style="width:100%;">
-            </div>
-
-            <div class="setting-group">
-                <label>② 掲示板の雰囲気（ロール）</label>
-                <select id="tone-select">
-                    <option value="mix">カオス（ごちゃ混ぜ）</option>
-                    <option value="nanj">なんJ（猛虎弁・実況）</option>
-                    <option value="vip">VIP（うはｗｗ・短文）</option>
-                    <option value="news">ニュース（批判・議論）</option>
-                    <option value="gal">ガールズ（〜だよね・辛辣）</option>
-                </select>
-            </div>
-
-            <div class="setting-group">
-                <label>③ 追加の指示（自由記入）</label>
-                <textarea id="custom-prompt-input" placeholder="例：全員ツンデレにして、コテハンには厳しくして" style="height:60px;"></textarea>
-            </div>
-
-            <hr>
-
-            <div class="setting-group">
-                <label>表示設定</label>
-                <div style="margin-top:5px;">
-                    <label><input type="checkbox" id="aa-mode-switch"> AAモード（MS Pゴシック風）</label>
-                </div>
-            </div>
+            <label class="label-title" style="margin-top:15px;">追加の指示（自由記入）</label>
+            <p style="font-size:11px; color:#666; margin:0 0 5px 0;">
+                「全員ツンデレで」「喧嘩腰で」など、性格の微調整に使ってください。
+            </p>
+            <textarea id="extra-prompt-input" style="width:100%; height:80px; font-size:12px; border:1px solid #ccc; padding:5px;"></textarea>
 
             <button id="save-settings-btn" style="margin-top:20px;">保存して閉じる</button>
             
@@ -102,8 +89,8 @@
     <div id="modal-create" class="modal hidden">
         <div class="modal-content">
             <h2>スレッド作成</h2>
-            <input type="text" id="new-thread-title" placeholder="スレタイを入力..." style="margin-bottom:5px;">
-            <textarea id="new-thread-body" placeholder="本文(>>1)を入力..." style="width:100%; height:80px; margin-bottom:10px;"></textarea>
+            <input type="text" id="new-thread-title" placeholder="スレタイを入力..." style="margin-bottom:10px;">
+            <textarea id="new-thread-body" placeholder="本文（>>1）を入力..." style="width:100%; height:100px; padding:10px; margin-bottom:10px; border:1px solid #ccc; border-radius:4px; font-family:inherit;"></textarea>
             <button id="do-create-thread-btn">スレを立てる</button>
             <button id="cancel-create-btn" class="secondary">キャンセル</button>
         </div>
