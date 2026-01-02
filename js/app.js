@@ -1,13 +1,13 @@
-import { fetchAiResponses } from './gemini.js';
+import { fetchAiResponses, fetchAiThreads } from './gemini.js';
 
 // --- データ管理 ---
 let threads = JSON.parse(localStorage.getItem('ai_threads')) || [];
 let currentThreadId = null;
 
-// デフォルトのプロンプト（ここを変更すると初期値が変わります）
+// ★変更：ごちゃ混ぜカオス＆高速化用のプロンプト
 const DEFAULT_PROMPT = `
-あなたは匿名掲示板「5ch」のなんでも実況J（なんJ）の住人になりきってください。
-以下のスレッドの続きとして、新しいレスを1〜10個ランダムに生成してください。
+あなたは日本の匿名掲示板「5ch」の住人たちになりきってください。
+以下のスレッドの続きとして、新しいレスを【1〜3個】生成してください。（生成数を少なくして高速に応答すること）
 
 【スレッド情報】
 タイトル: {{TITLE}}
@@ -15,20 +15,22 @@ const DEFAULT_PROMPT = `
 直近の流れ:
 {{CONTEXT}}
 
-【行動指針】
-- 名前は基本「風吹けば名無し」
-- 口調は猛虎弁（〜やで、〜やん、ワイ、せやな）やネットスラングを多用する。
-- 全員が会話に参加しなくていい。独り言、唐突な自分語り、煽り合いなど、カオスな状態にする。
-- 直近のレス（ユーザーの書き込み含む）にアンカー（>>数字）がついている場合、それに反応して煽ったり同意したりすること。
-- ただし、全てのレスがアンカー付きの会話になってはいけない。半分くらいは独り言や無視すること。
-- IDは適当な8文字程度の英数文字列（ワッチョイ風）。
+【行動指針：カオスな雰囲気を作る】
+- 丁寧語は禁止。タメ口、煽り、短文、スラング（w、草、乙、希ガス、それな）を適当に混ぜる。
+- キャラを統一しないこと。
+  - 「猛虎弁を使う奴（ワイ、せやな）」
+  - 「VIPPERっぽい奴（うはｗｗｗおｋｗｗｗ）」
+  - 「ニュース民っぽい批判的な奴（〜だろ常識的に）」
+  - 「冷めた奴（ソースは？、で？）」
+  - これらをランダムに混在させる。
+- ユーザーからのアンカー（>>数字）がある場合は、適度に反応して喧嘩したり同意したりすること。でも全員が反応しなくていい。スルーもよし。
+- IDは適当な8文字英数（ワッチョイ風）。
 
-【重要：出力形式】
-必ず以下のJSON形式の配列のみを出力してください。Markdown記号や余計な解説は禁止。
-
+【出力形式】
+JSON配列のみ。Markdown禁止。
 [
-  {"name": "風吹けば名無し", "body": "せやな", "id": "A1b2C3d4"},
-  {"name": "風吹けば名無し", "body": ">>{{RES_COUNT}} 嘘乙", "id": "X9z8Y7w6"}
+  {"name": "名無しさん", "body": "これマジ？", "id": "AbCdEfGh"},
+  {"name": "風吹けば名無し", "body": ">>{{RES_COUNT}} 釣り乙ｗｗｗ", "id": "XyZ12345"}
 ]
 `;
 
@@ -39,12 +41,13 @@ const threadListEl = document.getElementById('thread-list');
 const resContainerEl = document.getElementById('res-container');
 const headerTitle = document.getElementById('header-title');
 const backBtn = document.getElementById('back-btn');
+const refreshThreadsBtn = document.getElementById('refresh-threads-btn');
 
 // --- 初期化 ---
 function init() {
     renderThreadList();
     
-    // イベントリスナー
+    // イベント
     document.getElementById('settings-btn').onclick = () => showModal('modal-settings');
     document.getElementById('save-settings-btn').onclick = saveSettings;
     document.getElementById('create-thread-btn').onclick = () => showModal('modal-create');
@@ -53,23 +56,29 @@ function init() {
     document.getElementById('update-btn').onclick = updateThread;
     document.getElementById('back-btn').onclick = showThreadList;
     document.getElementById('clear-data-btn').onclick = clearData;
-    document.getElementById('user-post-btn').onclick = userPost; // 自分の書き込み
+    document.getElementById('user-post-btn').onclick = userPost;
+    
+    // 新着スレ取得ボタン
+    refreshThreadsBtn.onclick = generateNewThreads;
+
+    // プロンプト初期化ボタン
     document.getElementById('reset-prompt-btn').onclick = () => {
-        document.getElementById('prompt-input').value = DEFAULT_PROMPT;
+        if(confirm("プロンプトを初期設定（ごちゃ混ぜ5ch風）に戻しますか？")) {
+            document.getElementById('prompt-input').value = DEFAULT_PROMPT;
+        }
     };
     
     document.getElementById('reload-app-btn').onclick = () => {
-        if(confirm("画面を再読み込みして最新の状態にしますか？")) window.location.reload(true);
+        if(confirm("画面をリロードしますか？")) window.location.reload(true);
     };
     
-    // 設定読み込み
+    // データ読み込み
     const key = localStorage.getItem('ai_gemini_key');
     if (key) document.getElementById('api-key-input').value = key;
-
     const model = localStorage.getItem('ai_gemini_model');
     document.getElementById('model-input').value = model || "gemini-2.5-flash";
 
-    // プロンプト読み込み
+    // プロンプト（未保存なら新しいデフォルトを入れる）
     const savedPrompt = localStorage.getItem('ai_gemini_prompt');
     document.getElementById('prompt-input').value = savedPrompt || DEFAULT_PROMPT;
 }
@@ -79,6 +88,7 @@ function showThreadList() {
     viewList.classList.remove('hidden');
     viewDetail.classList.add('hidden');
     backBtn.classList.add('hidden');
+    refreshThreadsBtn.classList.remove('hidden'); // スレ一覧では表示
     headerTitle.textContent = "AI掲示板";
     currentThreadId = null;
     renderThreadList();
@@ -92,6 +102,7 @@ function showThreadDetail(id) {
     viewList.classList.add('hidden');
     viewDetail.classList.remove('hidden');
     backBtn.classList.remove('hidden');
+    refreshThreadsBtn.classList.add('hidden'); // スレ詳細では隠す
     headerTitle.textContent = thread.title;
 
     renderResList(thread);
@@ -101,6 +112,7 @@ function showThreadDetail(id) {
 // --- レンダリング ---
 function renderThreadList() {
     threadListEl.innerHTML = '';
+    // 新しい順に表示
     threads.forEach(t => {
         const div = document.createElement('div');
         div.className = 'thread-item';
@@ -116,7 +128,6 @@ function renderResList(thread) {
         const div = document.createElement('div');
         div.className = 'res';
         
-        // 自分のレスかどうかで色を変えるなどしてもよい
         const isMe = res.id === "MY_ID"; 
         const nameStyle = isMe ? "color:blue;" : "";
 
@@ -133,7 +144,46 @@ function renderResList(thread) {
     });
 }
 
-// --- ユーザーの書き込み ---
+// --- 新着スレ自動生成（新機能） ---
+async function generateNewThreads() {
+    const key = localStorage.getItem('ai_gemini_key');
+    const model = localStorage.getItem('ai_gemini_model') || "gemini-2.5-flash";
+
+    if (!key) {
+        alert("設定からAPIキーを入れてください");
+        return;
+    }
+
+    refreshThreadsBtn.disabled = true;
+    refreshThreadsBtn.textContent = "…"; // 読み込み中表示
+
+    // AIにスレタイを考えてもらう
+    const newThreadsData = await fetchAiThreads(key, model);
+
+    if (newThreadsData && newThreadsData.length > 0) {
+        newThreadsData.forEach(item => {
+            const newThread = {
+                id: Date.now().toString() + Math.random().toString(36).slice(-4),
+                title: item.title,
+                responses: [
+                    { number: 1, name: "名無しさん", body: item.firstRes || "立てたで", id: "Owner" }
+                ]
+            };
+            // 先頭に追加
+            threads.unshift(newThread);
+        });
+
+        saveThreads();
+        renderThreadList();
+        // 演出：少しスクロールを戻す
+        window.scrollTo(0, 0);
+    }
+
+    refreshThreadsBtn.disabled = false;
+    refreshThreadsBtn.textContent = "🔄";
+}
+
+// --- ユーザー書き込み ---
 function userPost() {
     const input = document.getElementById('user-res-input');
     const body = input.value.trim();
@@ -142,10 +192,9 @@ function userPost() {
     const thread = threads.find(t => t.id === currentThreadId);
     if (!thread) return;
 
-    // ユーザーのレスを追加
     thread.responses.push({
         number: thread.responses.length + 1,
-        name: "自分", // 名前を変えたければここ
+        name: "自分",
         body: body,
         id: "MY_ID"
     });
@@ -160,13 +209,9 @@ function userPost() {
 async function updateThread() {
     const key = localStorage.getItem('ai_gemini_key');
     const model = localStorage.getItem('ai_gemini_model') || "gemini-2.5-flash";
-    // 保存されたプロンプトを使う。なければデフォルト
     const promptTemplate = localStorage.getItem('ai_gemini_prompt') || DEFAULT_PROMPT;
 
-    if (!key) {
-        alert("設定ボタンからAPIキーを設定してください！");
-        return;
-    }
+    if (!key) { alert("APIキーがありません"); return; }
 
     const btn = document.getElementById('update-btn');
     const thread = threads.find(t => t.id === currentThreadId);
@@ -174,10 +219,8 @@ async function updateThread() {
     btn.disabled = true;
     btn.textContent = "書き込み中...";
 
-    // 文脈：直近20レスくらい渡す（自分のレスも含まれる）
     const context = thread.responses.slice(-20).map(r => `${r.number}: ${r.body}`).join('\n');
 
-    // API呼び出し（プロンプトテンプレートも渡す）
     const newResList = await fetchAiResponses(key, model, thread.title, thread.responses.length, context, promptTemplate);
 
     if (newResList && newResList.length > 0) {
@@ -186,7 +229,7 @@ async function updateThread() {
             count++;
             thread.responses.push({
                 number: count,
-                name: item.name || "風吹けば名無し",
+                name: item.name || "名無しさん",
                 body: item.body || "",
                 id: item.id || "???"
             });
@@ -209,7 +252,7 @@ function createThread() {
         id: Date.now().toString(),
         title: title,
         responses: [
-            { number: 1, name: "風吹けば名無し", body: "立てたで。AI書き込んでくれ。", id: "Owner" }
+            { number: 1, name: "名無しさん", body: "お願いします。", id: "Owner" }
         ]
     };
 
@@ -224,22 +267,21 @@ function saveThreads() {
     localStorage.setItem('ai_threads', JSON.stringify(threads));
 }
 
-// --- 設定関連 ---
 function saveSettings() {
     const key = document.getElementById('api-key-input').value.trim();
     const model = document.getElementById('model-input').value.trim();
-    const prompt = document.getElementById('prompt-input').value; // プロンプト保存
+    const prompt = document.getElementById('prompt-input').value;
     
     localStorage.setItem('ai_gemini_key', key);
     localStorage.setItem('ai_gemini_model', model);
     localStorage.setItem('ai_gemini_prompt', prompt);
     
     closeModal('modal-settings');
-    alert("設定を保存しました。\n次回更新からこのプロンプトが使われます。");
+    alert("設定を保存しました");
 }
 
 function clearData() {
-    if(confirm("本当にスレッドを全て消しますか？")) {
+    if(confirm("スレッドを全消去しますか？")) {
         localStorage.removeItem('ai_threads');
         threads = [];
         renderThreadList();
