@@ -1,10 +1,10 @@
 /**
  * Gemini APIを呼び出してレスを生成する
  */
-export async function fetchAiResponses(apiKey, threadTitle, currentResCount, contextText) {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+export async function fetchAiResponses(apiKey, model, threadTitle, currentResCount, contextText) {
+    // モデル名をURLに埋め込む
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 
-    // プロンプト（命令文）
     const prompt = `
 あなたは匿名掲示板「5ch」のなんでも実況J（なんJ）の住人になりきってください。
 以下のスレッドの続きとして、新しいレスを1〜10個ランダムに生成してください。
@@ -31,11 +31,9 @@ ${contextText}
 
     const body = {
         contents: [{ parts: [{ text: prompt }] }],
-        // 重要：JSONモードを強制
         generationConfig: { 
             responseMimeType: "application/json" 
         },
-        // 重要：安全フィルターを無効化（5ch風の口調がブロックされないように）
         safetySettings: [
             { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
             { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
@@ -52,36 +50,28 @@ ${contextText}
         });
 
         if (!response.ok) {
-            // エラーの詳細を表示させる
             const errText = await response.text();
             throw new Error(`API Error: ${response.status} - ${errText}`);
         }
 
         const data = await response.json();
         
-        // AIが回答を拒否した場合（セーフティなど）
         if (!data.candidates || data.candidates.length === 0) {
             throw new Error("AIが回答を拒否しました（不適切な内容と判断された可能性があります）");
         }
 
         const candidate = data.candidates[0];
-        
-        // 念の為のチェック
         if (!candidate.content || !candidate.content.parts || !candidate.content.parts[0].text) {
              throw new Error("AIからの応答が空でした");
         }
 
         let text = candidate.content.parts[0].text;
-
-        // 重要：Markdown記号（```json や ```）が含まれていたら削除する
         text = text.replace(/```json/g, '').replace(/```/g, '').trim();
 
-        // JSONパースして返す
         return JSON.parse(text);
 
     } catch (e) {
         console.error(e);
-        // エラー内容をアラートで詳しく出す
         alert("エラーが発生しました:\n" + e.message);
         return [];
     }
