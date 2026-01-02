@@ -56,9 +56,9 @@ async function callGemini(url, promptText) {
 
         const data = await response.json();
         
-        if (!data.candidates || data.candidates.length === 0) throw new Error("AIが回答を拒否しました");
+        if (!data.candidates || !data.candidates.length) throw new Error("AIが回答を拒否しました");
         const candidate = data.candidates[0];
-        if (!candidate.content || !candidate.content.parts || !candidate.content.parts[0].text) throw new Error("AI応答が空でした");
+        if (!candidate.content || !candidate.content.parts) throw new Error("AI応答が空でした");
 
         let text = candidate.content.parts[0].text;
         text = text.replace(/```json/g, '').replace(/```/g, '').trim();
@@ -66,7 +66,8 @@ async function callGemini(url, promptText) {
         return JSON.parse(text);
 
     } catch (e) {
-        console.error(e);
+        console.error("Gemini通信エラー:", e);
+        // 手動更新なのでエラーを通知する
         alert("エラーが発生しました:\n" + e.message);
         return [];
     }
