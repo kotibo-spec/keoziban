@@ -50,16 +50,15 @@ async function callGemini(url, promptText) {
         });
 
         if (!response.ok) {
-            // エラーでもアラートを出さず、空配列を返して呼び出し元に任せる
-            console.error(`API Error: ${response.status}`);
-            return [];
+            const errText = await response.text();
+            throw new Error(`API Error: ${response.status} - ${errText}`);
         }
 
         const data = await response.json();
         
-        if (!data.candidates || !data.candidates.length) return [];
+        if (!data.candidates || data.candidates.length === 0) throw new Error("AIが回答を拒否しました");
         const candidate = data.candidates[0];
-        if (!candidate.content || !candidate.content.parts) return [];
+        if (!candidate.content || !candidate.content.parts || !candidate.content.parts[0].text) throw new Error("AI応答が空でした");
 
         let text = candidate.content.parts[0].text;
         text = text.replace(/```json/g, '').replace(/```/g, '').trim();
@@ -67,8 +66,8 @@ async function callGemini(url, promptText) {
         return JSON.parse(text);
 
     } catch (e) {
-        // ここでもアラートは出さない（オートモードが止まるため）
-        console.error("Gemini通信エラー:", e);
+        console.error(e);
+        alert("エラーが発生しました:\n" + e.message);
         return [];
     }
 }
