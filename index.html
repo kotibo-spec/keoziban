@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AI掲示板</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="https://placehold.jp/150x150.png?text=AI">
+</head>
+<body>
+
+    <!-- ヘッダー -->
+    <header>
+        <button id="back-btn" class="hidden">＜ 戻る</button>
+        <h1 id="header-title">AI掲示板</h1>
+        <button id="settings-btn">設定</button>
+    </header>
+
+    <!-- 1. スレッド一覧画面 -->
+    <div id="view-thread-list" class="view">
+        <div class="list-container" id="thread-list">
+            <!-- ここにスレが並ぶ -->
+        </div>
+        <button id="create-thread-btn" class="fab">+</button>
+    </div>
+
+    <!-- 2. レス表示画面 -->
+    <div id="view-thread-detail" class="view hidden">
+        <div id="res-container" class="res-container">
+            <!-- ここにレスが並ぶ -->
+        </div>
+        <div class="controls">
+            <button id="update-btn" class="action-btn">更新（AI書き込み）</button>
+        </div>
+    </div>
+
+    <!-- 3. 設定画面（モーダル） -->
+    <div id="modal-settings" class="modal hidden">
+        <div class="modal-content">
+            <h2>設定</h2>
+            <p>Gemini APIキーを入力してください。<br>（端末内にのみ保存されます）</p>
+            <input type="password" id="api-key-input" placeholder="API Key">
+            <button id="save-settings-btn">保存して閉じる</button>
+            <hr>
+            <button id="clear-data-btn" style="background:#cc0000; color:white;">データ全消去</button>
+        </div>
+    </div>
+
+    <!-- 4. スレ作成画面（モーダル） -->
+    <div id="modal-create" class="modal hidden">
+        <div class="modal-content">
+            <h2>スレッド作成</h2>
+            <input type="text" id="new-thread-title" placeholder="スレタイを入力...">
+            <button id="do-create-thread-btn">スレを立てる</button>
+            <button id="cancel-create-btn" class="secondary">キャンセル</button>
+        </div>
+    </div>
+
+    <script type="module" src="js/app.js"></script>
+</body>
+</html>
