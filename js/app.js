@@ -16,7 +16,7 @@ const backBtn = document.getElementById('back-btn');
 function init() {
     renderThreadList();
     
-    // イベントリスナー設定
+    // イベントリスナー
     document.getElementById('settings-btn').onclick = () => showModal('modal-settings');
     document.getElementById('save-settings-btn').onclick = saveSettings;
     document.getElementById('create-thread-btn').onclick = () => showModal('modal-create');
@@ -29,7 +29,8 @@ function init() {
     // アプリ更新（リロード）ボタン
     document.getElementById('reload-app-btn').onclick = () => {
         if(confirm("画面を再読み込みして最新の状態にしますか？")) {
-            window.location.reload();
+            // キャッシュを無視してリロード
+            window.location.reload(true);
         }
     };
     
@@ -37,12 +38,12 @@ function init() {
     const key = localStorage.getItem('ai_gemini_key');
     if (key) document.getElementById('api-key-input').value = key;
 
-    // モデル読み込み（デフォルトは 1.5-flash）
+    // モデル読み込み（デフォルトは 2.5-flash にしておきます）
     const model = localStorage.getItem('ai_gemini_model');
     if (model) {
-        document.getElementById('model-select').value = model;
+        document.getElementById('model-input').value = model;
     } else {
-        document.getElementById('model-select').value = "gemini-1.5-flash";
+        document.getElementById('model-input').value = "gemini-2.5-flash";
     }
 }
 
@@ -103,7 +104,8 @@ function renderResList(thread) {
 // --- アクション ---
 async function updateThread() {
     const key = localStorage.getItem('ai_gemini_key');
-    const model = localStorage.getItem('ai_gemini_model') || "gemini-1.5-flash";
+    // 設定がなければデフォルトを使う
+    const model = localStorage.getItem('ai_gemini_model') || "gemini-2.5-flash";
 
     if (!key) {
         alert("設定ボタンからAPIキーを設定してください！");
@@ -168,13 +170,13 @@ function saveThreads() {
 // --- 設定関連 ---
 function saveSettings() {
     const key = document.getElementById('api-key-input').value.trim();
-    const model = document.getElementById('model-select').value;
+    const model = document.getElementById('model-input').value.trim();
     
     localStorage.setItem('ai_gemini_key', key);
     localStorage.setItem('ai_gemini_model', model);
     
     closeModal('modal-settings');
-    alert("設定を保存しました。");
+    alert("設定を保存しました。\n使用モデル: " + model);
 }
 
 function clearData() {
@@ -196,5 +198,4 @@ function escapeHtml(str) {
     });
 }
 
-// 起動
 init();
