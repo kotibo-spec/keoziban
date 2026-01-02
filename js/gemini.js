@@ -1,21 +1,16 @@
 /**
  * スレッドのレスを生成する
  */
-export async function fetchAiResponses(apiKey, model, threadTitle, currentResCount, contextText, promptTemplate) {
+export async function fetchAiResponses(apiKey, model, fullPrompt) {
+    // モデル名が空ならデフォルト
     const targetModel = model || "gemini-2.5-flash";
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${targetModel}:generateContent?key=${apiKey}`;
 
-    // プロンプト内の変数を置換
-    let prompt = promptTemplate
-        .replace(/{{TITLE}}/g, threadTitle)
-        .replace(/{{RES_COUNT}}/g, currentResCount)
-        .replace(/{{CONTEXT}}/g, contextText);
-
-    return await callGemini(url, prompt);
+    return await callGemini(url, fullPrompt);
 }
 
 /**
- * 新しいスレッドタイトルを生成する（新機能）
+ * 新しいスレッドタイトルを生成する
  */
 export async function fetchAiThreads(apiKey, model) {
     const targetModel = model || "gemini-2.5-flash";
@@ -27,8 +22,7 @@ export async function fetchAiThreads(apiKey, model) {
 ジャンルはバラバラにすること（ニュース、雑談、ネタ、相談、オカルトなど混ぜて）。
 
 【出力フォーマット】
-以下のJSON配列形式のみで出力してください。Markdown記号は禁止。
-
+JSON配列形式のみ。Markdown記号禁止。
 [
   {"title": "【悲報】ワイの夕飯、とんでもないことになる", "firstRes": "画像貼るからちょっと待ってろ"},
   {"title": "AIが発達した結果ｗｗｗｗｗ", "firstRes": "仕事なくなったわ"},
@@ -79,7 +73,8 @@ async function callGemini(url, promptText) {
 
     } catch (e) {
         console.error(e);
-        alert("エラー: " + e.message);
+        // オートモードなどで連続エラーが起きると鬱陶しいので、コンソールのみにするか検討
+        // 今回はアラート出す
         return [];
     }
 }
