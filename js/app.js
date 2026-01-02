@@ -3,8 +3,6 @@ import { fetchAiResponses, fetchAiThreads } from './gemini.js';
 // --- データ管理 ---
 let threads = JSON.parse(localStorage.getItem('ai_threads')) || [];
 let currentThreadId = null;
-let isAutoMode = false; 
-let autoTimer = null;
 
 // --- 雰囲気定義 ---
 const TONE_PRESETS = {
@@ -23,7 +21,6 @@ const resContainerEl = document.getElementById('res-container');
 const headerTitle = document.getElementById('header-title');
 const backBtn = document.getElementById('back-btn');
 const refreshThreadsBtn = document.getElementById('refresh-threads-btn');
-const autoIndicator = document.getElementById('auto-indicator');
 const updateBtn = document.getElementById('update-btn');
 
 // --- 初期化 ---
@@ -38,22 +35,14 @@ function init() {
     document.getElementById('do-create-thread-btn').onclick = createThread;
     document.getElementById('cancel-create-btn').onclick = () => closeModal('modal-create');
     
-    updateBtn.onclick = () => manualUpdate();
-    document.getElementById('back-btn').onclick = () => {
-        stopAutoMode(); 
-        showThreadList();
-    };
+    updateBtn.onclick = updateThread;
+    document.getElementById('back-btn').onclick = showThreadList;
     document.getElementById('clear-data-btn').onclick = clearData;
     document.getElementById('user-post-btn').onclick = userPost;
     refreshThreadsBtn.onclick = generateNewThreads;
     
     document.getElementById('res-count-slider').oninput = (e) => {
         document.getElementById('res-count-display').textContent = e.target.value;
-    };
-    
-    document.getElementById('auto-mode-switch').onchange = (e) => {
-        if(e.target.checked) startAutoMode();
-        else stopAutoMode();
     };
 
     document.getElementById('aa-mode-switch').onchange = (e) => toggleAAMode(e.target.checked);
@@ -132,62 +121,27 @@ function appendResToDom(res) {
     resContainerEl.appendChild(div);
 }
 
-// --- AI書き込みロジック ---
-
-async function manualUpdate() {
-    // 手動のときは1回だけ実行
-    await runUpdateProcess();
-}
-
-function startAutoMode() {
-    if(isAutoMode) return;
-    isAutoMode = true;
-    autoIndicator.classList.remove('hidden');
-    document.getElementById('auto-mode-switch').checked = true;
-    
-    // 即座に開始
-    runUpdateProcess();
-}
-
-function stopAutoMode() {
-    isAutoMode = false;
-    autoIndicator.classList.add('hidden');
-    document.getElementById('auto-mode-switch').checked = false;
-    if(autoTimer) clearTimeout(autoTimer);
-}
-
-// ★ここを頑丈に修正しました★
-async function runUpdateProcess() {
-    // もしすでにスレ画面から抜けていたら停止
-    if (!currentThreadId) {
-        stopAutoMode();
-        return;
-    }
-
+// --- AI書き込みロジック (シンプル化) ---
+async function updateThread() {
     const key = localStorage.getItem('ai_gemini_key');
     const model = localStorage.getItem('ai_gemini_model') || "gemini-2.5-flash";
     const resCount = localStorage.getItem('ai_config_count') || 3;
     const toneKey = localStorage.getItem('ai_config_tone') || "mix";
     const customPrompt = localStorage.getItem('ai_config_prompt_custom') || "";
 
-    if (!key) {
-        alert("APIキーを設定してください");
-        stopAutoMode();
-        return;
-    }
+    if (!key) { alert("APIキーを設定してください"); return; }
 
     const thread = threads.find(t => t.id === currentThreadId);
-    if (!thread) { stopAutoMode(); return; }
+    if (!thread) return;
 
     updateBtn.disabled = true;
-    updateBtn.textContent = isAutoMode ? "AUTO:考え中..." : "書き込み中...";
+    updateBtn.textContent = "書き込み中...";
 
-    try {
-        // プロンプト作成
-        const toneInstruction = TONE_PRESETS[toneKey] || TONE_PRESETS["mix"];
-        const context = thread.responses.slice(-20).map(r => `${r.number}: ${r.body}`).join('\n');
-        
-        const fullPrompt = `
+    // プロンプト作成
+    const toneInstruction = TONE_PRESETS[toneKey] || TONE_PRESETS["mix"];
+    const context = thread.responses.slice(-20).map(r => `${r.number}: ${r.body}`).join('\n');
+    
+    const fullPrompt = `
 あなたは5ch風掲示板の住人です。
 以下のスレッドの続きとして、レスを【${resCount}個】生成してください。
 
@@ -208,40 +162,28 @@ ${customPrompt}
 - IDは適当な8文字英数。
 - JSON配列のみ出力。
 [ {"name": "名無し", "body": "本文", "id": "AbCdEfGh"} ]
-        `;
+    `;
 
-        // API呼び出し
-        const newResList = await fetchAiResponses(key, model, fullPrompt);
+    // API呼び出し
+    const newResList = await fetchAiResponses(key, model, fullPrompt);
 
-        // エラーなら空配列が返ってくる
-        if (newResList && newResList.length > 0) {
-            updateBtn.textContent = isAutoMode ? "AUTO:書き込み..." : "書き込み中...";
-            await displaySequentially(thread, newResList);
-            saveThreads();
-        } else {
-            // 生成失敗（エラー）の場合
-            if(isAutoMode) console.log("AI生成エラー: リトライします");
-        }
-
-    } catch (e) {
-        console.error("Critical Error in Loop:", e);
-    } finally {
-        // ★重要：成功しても失敗しても、オートモードなら必ず次を予約する
-        updateBtn.disabled = false;
-        updateBtn.textContent = "更新（AI書き込み）";
-
-        if (isAutoMode && currentThreadId) {
-            // エラー時は少し長めに待つ(5秒)、成功時は3秒
-            const waitTime = 3000 + Math.random() * 2000;
-            autoTimer = setTimeout(runUpdateProcess, waitTime);
-        }
+    // 成功したら擬似ストリーミング表示
+    if (newResList && newResList.length > 0) {
+        await displaySequentially(thread, newResList);
+        saveThreads();
     }
+
+    updateBtn.disabled = false;
+    updateBtn.textContent = "更新（AI書き込み）";
 }
 
+// 順番に表示する演出関数（これは残す）
 async function displaySequentially(thread, resList) {
     let count = thread.responses.length;
     for (const item of resList) {
+        // 画面移動してたら中断
         if (currentThreadId !== thread.id) break;
+        
         count++;
         const newRes = {
             number: count,
@@ -252,7 +194,9 @@ async function displaySequentially(thread, resList) {
         thread.responses.push(newRes);
         appendResToDom(newRes);
         window.scrollTo(0, document.body.scrollHeight);
-        await new Promise(r => setTimeout(r, 800)); // 演出待ち時間
+        
+        // 0.8秒待機（演出）
+        await new Promise(r => setTimeout(r, 800));
     }
 }
 
