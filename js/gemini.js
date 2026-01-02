@@ -2,8 +2,12 @@
  * Gemini APIを呼び出してレスを生成する
  */
 export async function fetchAiResponses(apiKey, model, threadTitle, currentResCount, contextText) {
-    // モデル名をURLに埋め込む
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+    
+    // 選んだモデル名を使ってURLを作る
+    // もしモデル名が空ならデフォルトで gemini-2.5-flash を使う
+    const targetModel = model || "gemini-2.5-flash";
+    
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${targetModel}:generateContent?key=${apiKey}`;
 
     const prompt = `
 あなたは匿名掲示板「5ch」のなんでも実況J（なんJ）の住人になりきってください。
