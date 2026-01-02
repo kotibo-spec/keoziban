@@ -10,14 +10,13 @@
 </head>
 <body>
 
-    <!-- ヘッダー -->
     <header>
         <button id="back-btn" class="hidden">＜ 戻る</button>
         <h1 id="header-title">AI掲示板</h1>
         <button id="settings-btn">設定</button>
     </header>
 
-    <!-- 1. スレッド一覧画面 -->
+    <!-- 1. スレッド一覧 -->
     <div id="view-thread-list" class="view">
         <div class="list-container" id="thread-list"></div>
         <button id="create-thread-btn" class="fab">+</button>
@@ -25,46 +24,55 @@
 
     <!-- 2. レス表示画面 -->
     <div id="view-thread-detail" class="view hidden">
-        <div id="res-container" class="res-container"></div>
+        <div id="res-container" class="res-container" style="padding-bottom: 160px;"></div>
+        
+        <!-- コントロールエリア（書き込み ＆ AI更新） -->
         <div class="controls">
+            <!-- ユーザー自身の書き込みエリア -->
+            <div style="display:flex; gap:5px; margin-bottom:10px;">
+                <input type="text" id="user-res-input" placeholder="レスを書き込む..." style="flex:1; margin:0;">
+                <button id="user-post-btn" style="width:60px; background:#444; color:white; border-radius:4px;">書く</button>
+            </div>
+            
+            <!-- AI更新ボタン -->
             <button id="update-btn" class="action-btn">更新（AI書き込み）</button>
         </div>
     </div>
 
-    <!-- 3. 設定画面（モーダル） -->
+    <!-- 3. 設定画面 -->
     <div id="modal-settings" class="modal hidden">
-        <div class="modal-content">
+        <div class="modal-content" style="max-height:90vh; overflow-y:auto;">
             <h2>設定</h2>
             
-            <label style="font-weight:bold; display:block; margin-top:10px;">API Key</label>
-            <input type="password" id="api-key-input" placeholder="API Keyを入力">
+            <label style="font-weight:bold;">API Key</label>
+            <input type="password" id="api-key-input" placeholder="API Key">
             
-            <label style="font-weight:bold; display:block; margin-top:10px;">使用モデル</label>
-            <p style="font-size:12px; color:#666; margin:0;">リストから選ぶか、直接入力してください</p>
+            <label style="font-weight:bold;">モデル</label>
             <input type="text" id="model-input" list="model-list" placeholder="gemini-2.5-flash">
             <datalist id="model-list">
                 <option value="gemini-2.5-flash">
                 <option value="gemini-2.0-flash-exp">
                 <option value="gemini-1.5-flash">
-                <option value="gemini-1.5-pro">
             </datalist>
+
+            <!-- プロンプト編集エリア -->
+            <label style="font-weight:bold; display:block; margin-top:15px;">AIへの指示（プロンプト）</label>
+            <p style="font-size:11px; color:#666; margin:0 0 5px 0;">
+                {{TITLE}} はスレタイ、{{CONTEXT}} は会話の流れに置換されます。<br>
+                「JSON形式で出力」の指示は消さないでください。
+            </p>
+            <textarea id="prompt-input" style="width:100%; height:200px; font-size:12px; border:1px solid #ccc; padding:5px;"></textarea>
+            <button id="reset-prompt-btn" style="font-size:11px; background:#666; color:white; padding:5px;">デフォルトに戻す</button>
 
             <button id="save-settings-btn" style="margin-top:20px;">保存して閉じる</button>
             
             <hr style="margin: 30px 0;">
-            
-            <!-- 更新ボタン -->
-            <button id="reload-app-btn" style="background:#28a745; color:white; margin-bottom:15px;">
-                🔄 アプリを最新版に更新
-            </button>
-            
-            <button id="clear-data-btn" style="background:#cc0000; color:white;">
-                🗑️ データ全消去
-            </button>
+            <button id="reload-app-btn" style="background:#28a745; color:white; margin-bottom:15px;">🔄 アプリを最新版に更新</button>
+            <button id="clear-data-btn" style="background:#cc0000; color:white;">🗑️ データ全消去</button>
         </div>
     </div>
 
-    <!-- 4. スレ作成画面（モーダル） -->
+    <!-- 4. スレ作成 -->
     <div id="modal-create" class="modal hidden">
         <div class="modal-content">
             <h2>スレッド作成</h2>
