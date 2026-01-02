@@ -26,9 +26,24 @@ function init() {
     document.getElementById('back-btn').onclick = showThreadList;
     document.getElementById('clear-data-btn').onclick = clearData;
     
+    // アプリ更新（リロード）ボタン
+    document.getElementById('reload-app-btn').onclick = () => {
+        if(confirm("画面を再読み込みして最新の状態にしますか？")) {
+            window.location.reload();
+        }
+    };
+    
     // 設定読み込み
     const key = localStorage.getItem('ai_gemini_key');
     if (key) document.getElementById('api-key-input').value = key;
+
+    // モデル読み込み（デフォルトは 1.5-flash）
+    const model = localStorage.getItem('ai_gemini_model');
+    if (model) {
+        document.getElementById('model-select').value = model;
+    } else {
+        document.getElementById('model-select').value = "gemini-1.5-flash";
+    }
 }
 
 // --- 画面遷移 ---
@@ -52,7 +67,6 @@ function showThreadDetail(id) {
     headerTitle.textContent = thread.title;
 
     renderResList(thread);
-    // 自動で一番下へスクロール
     window.scrollTo(0, document.body.scrollHeight);
 }
 
@@ -89,6 +103,8 @@ function renderResList(thread) {
 // --- アクション ---
 async function updateThread() {
     const key = localStorage.getItem('ai_gemini_key');
+    const model = localStorage.getItem('ai_gemini_model') || "gemini-1.5-flash";
+
     if (!key) {
         alert("設定ボタンからAPIキーを設定してください！");
         return;
@@ -100,11 +116,10 @@ async function updateThread() {
     btn.disabled = true;
     btn.textContent = "書き込み中...";
 
-    // 直近10レスくらいを文脈として渡す
     const context = thread.responses.slice(-15).map(r => `${r.number}: ${r.body}`).join('\n');
 
-    // API呼び出し
-    const newResList = await fetchAiResponses(key, thread.title, thread.responses.length, context);
+    // 引数にmodelを追加して渡す
+    const newResList = await fetchAiResponses(key, model, thread.title, thread.responses.length, context);
 
     if (newResList && newResList.length > 0) {
         let count = thread.responses.length;
@@ -139,7 +154,7 @@ function createThread() {
         ]
     };
 
-    threads.unshift(newThread); // 先頭に追加
+    threads.unshift(newThread);
     saveThreads();
     titleInput.value = '';
     closeModal('modal-create');
@@ -152,10 +167,14 @@ function saveThreads() {
 
 // --- 設定関連 ---
 function saveSettings() {
-    const val = document.getElementById('api-key-input').value.trim();
-    localStorage.setItem('ai_gemini_key', val);
+    const key = document.getElementById('api-key-input').value.trim();
+    const model = document.getElementById('model-select').value;
+    
+    localStorage.setItem('ai_gemini_key', key);
+    localStorage.setItem('ai_gemini_model', model);
+    
     closeModal('modal-settings');
-    alert("APIキーを保存しました");
+    alert("設定を保存しました。");
 }
 
 function clearData() {
