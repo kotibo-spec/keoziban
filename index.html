@@ -17,9 +17,6 @@
         <!-- スレ一覧画面用の新着ボタン -->
         <button id="refresh-threads-btn" style="margin-right:10px; font-size:18px;">🔄</button>
         
-        <!-- オートモード中かどうかの表示 -->
-        <span id="auto-indicator" class="hidden" style="color:red; font-weight:bold; font-size:12px; margin-right:5px;">AUTO</span>
-
         <button id="settings-btn">設定</button>
     </header>
 
@@ -34,17 +31,12 @@
         <div id="res-container" class="res-container" style="padding-bottom: 180px;"></div>
         
         <div class="controls">
-            <!-- オートモード切り替えスイッチ（簡易） -->
-<div style="text-align:right; margin-bottom:5px;">
-    <label style="font-size:12px; color:#555;">
-        <input type="checkbox" id="auto-mode-switch"> オート更新（観戦）
-    </label>
-</div>
-
+            <!-- ユーザー書き込みエリア -->
             <div style="display:flex; gap:5px; margin-bottom:10px;">
                 <input type="text" id="user-res-input" placeholder="レスを書き込む..." style="flex:1; margin:0;">
                 <button id="user-post-btn" style="width:60px; background:#444; color:white; border-radius:4px;">書く</button>
             </div>
+            <!-- AI更新ボタン -->
             <button id="update-btn" class="action-btn">更新（AI書き込み）</button>
         </div>
     </div>
