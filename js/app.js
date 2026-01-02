@@ -3,36 +3,17 @@ import { fetchAiResponses, fetchAiThreads } from './gemini.js';
 // --- データ管理 ---
 let threads = JSON.parse(localStorage.getItem('ai_threads')) || [];
 let currentThreadId = null;
+let isAutoMode = false; // オートモード中か
+let autoTimer = null;   // オートモードのタイマー
 
-// ★変更：ごちゃ混ぜカオス＆高速化用のプロンプト
-const DEFAULT_PROMPT = `
-あなたは日本の匿名掲示板「5ch」の住人たちになりきってください。
-以下のスレッドの続きとして、新しいレスを【1〜3個】生成してください。（生成数を少なくして高速に応答すること）
-
-【スレッド情報】
-タイトル: {{TITLE}}
-現在のレス番: {{RES_COUNT}}まで
-直近の流れ:
-{{CONTEXT}}
-
-【行動指針：カオスな雰囲気を作る】
-- 丁寧語は禁止。タメ口、煽り、短文、スラング（w、草、乙、希ガス、それな）を適当に混ぜる。
-- キャラを統一しないこと。
-  - 「猛虎弁を使う奴（ワイ、せやな）」
-  - 「VIPPERっぽい奴（うはｗｗｗおｋｗｗｗ）」
-  - 「ニュース民っぽい批判的な奴（〜だろ常識的に）」
-  - 「冷めた奴（ソースは？、で？）」
-  - これらをランダムに混在させる。
-- ユーザーからのアンカー（>>数字）がある場合は、適度に反応して喧嘩したり同意したりすること。でも全員が反応しなくていい。スルーもよし。
-- IDは適当な8文字英数（ワッチョイ風）。
-
-【出力形式】
-JSON配列のみ。Markdown禁止。
-[
-  {"name": "名無しさん", "body": "これマジ？", "id": "AbCdEfGh"},
-  {"name": "風吹けば名無し", "body": ">>{{RES_COUNT}} 釣り乙ｗｗｗ", "id": "XyZ12345"}
-]
-`;
+// --- 雰囲気（トーン）の定義 ---
+const TONE_PRESETS = {
+    "mix": "なんJ、VIP、ニュース、専門板の住人がごちゃ混ぜ。丁寧語禁止。煽り、ネタ、真面目なレスが混在するカオスな状態。",
+    "nanj": "全員「なんJ」民。猛虎弁（〜やで、〜ンゴ、ワイ）を使用。実況風の勢い重視。プロ野球ネタや煽りが多い。",
+    "vip": "全員「VIP」民。うはｗｗｗおｋｗｗｗなどの古いネットスラングや短文を使用。クオリティの低い煽り合い。",
+    "news": "全員「ニュース速報」民。〜だろ常識的に考えて、ソースは？など、理屈っぽく批判的で斜に構えた態度。",
+    "gal": "女性向け掲示板風。〜だよね、〜しなよ。表向きは共感しているが裏でマウントを取り合うようなピリピリした雰囲気。"
+};
 
 // --- DOM要素 ---
 const viewList = document.getElementById('view-thread-list');
@@ -42,45 +23,55 @@ const resContainerEl = document.getElementById('res-container');
 const headerTitle = document.getElementById('header-title');
 const backBtn = document.getElementById('back-btn');
 const refreshThreadsBtn = document.getElementById('refresh-threads-btn');
+const autoIndicator = document.getElementById('auto-indicator');
+const updateBtn = document.getElementById('update-btn');
 
 // --- 初期化 ---
 function init() {
     renderThreadList();
+    loadSettings();
     
     // イベント
     document.getElementById('settings-btn').onclick = () => showModal('modal-settings');
     document.getElementById('save-settings-btn').onclick = saveSettings;
+    
     document.getElementById('create-thread-btn').onclick = () => showModal('modal-create');
     document.getElementById('do-create-thread-btn').onclick = createThread;
     document.getElementById('cancel-create-btn').onclick = () => closeModal('modal-create');
-    document.getElementById('update-btn').onclick = updateThread;
-    document.getElementById('back-btn').onclick = showThreadList;
+    
+    updateBtn.onclick = () => manualUpdate(); // 手動更新
+    document.getElementById('back-btn').onclick = () => {
+        stopAutoMode(); // 戻るときはオート停止
+        showThreadList();
+    };
     document.getElementById('clear-data-btn').onclick = clearData;
     document.getElementById('user-post-btn').onclick = userPost;
     
-    // 新着スレ取得ボタン
     refreshThreadsBtn.onclick = generateNewThreads;
-
-    // プロンプト初期化ボタン
-    document.getElementById('reset-prompt-btn').onclick = () => {
-        if(confirm("プロンプトを初期設定（ごちゃ混ぜ5ch風）に戻しますか？")) {
-            document.getElementById('prompt-input').value = DEFAULT_PROMPT;
-        }
+    
+    // スライダーの数値を表示
+    document.getElementById('res-count-slider').oninput = (e) => {
+        document.getElementById('res-count-display').textContent = e.target.value;
     };
     
+    // オートモードスイッチ
+    document.getElementById('auto-mode-switch').onchange = (e) => {
+        if(e.target.checked) {
+            startAutoMode();
+        } else {
+            stopAutoMode();
+        }
+    };
+
+    // AAモードスイッチ
+    document.getElementById('aa-mode-switch').onchange = (e) => {
+        toggleAAMode(e.target.checked);
+    };
+
+    // リロード
     document.getElementById('reload-app-btn').onclick = () => {
         if(confirm("画面をリロードしますか？")) window.location.reload(true);
     };
-    
-    // データ読み込み
-    const key = localStorage.getItem('ai_gemini_key');
-    if (key) document.getElementById('api-key-input').value = key;
-    const model = localStorage.getItem('ai_gemini_model');
-    document.getElementById('model-input').value = model || "gemini-2.5-flash";
-
-    // プロンプト（未保存なら新しいデフォルトを入れる）
-    const savedPrompt = localStorage.getItem('ai_gemini_prompt');
-    document.getElementById('prompt-input').value = savedPrompt || DEFAULT_PROMPT;
 }
 
 // --- 画面遷移 ---
@@ -88,7 +79,7 @@ function showThreadList() {
     viewList.classList.remove('hidden');
     viewDetail.classList.add('hidden');
     backBtn.classList.add('hidden');
-    refreshThreadsBtn.classList.remove('hidden'); // スレ一覧では表示
+    refreshThreadsBtn.classList.remove('hidden');
     headerTitle.textContent = "AI掲示板";
     currentThreadId = null;
     renderThreadList();
@@ -102,7 +93,7 @@ function showThreadDetail(id) {
     viewList.classList.add('hidden');
     viewDetail.classList.remove('hidden');
     backBtn.classList.remove('hidden');
-    refreshThreadsBtn.classList.add('hidden'); // スレ詳細では隠す
+    refreshThreadsBtn.classList.add('hidden');
     headerTitle.textContent = thread.title;
 
     renderResList(thread);
@@ -112,7 +103,6 @@ function showThreadDetail(id) {
 // --- レンダリング ---
 function renderThreadList() {
     threadListEl.innerHTML = '';
-    // 新しい順に表示
     threads.forEach(t => {
         const div = document.createElement('div');
         div.className = 'thread-item';
@@ -124,40 +114,169 @@ function renderThreadList() {
 
 function renderResList(thread) {
     resContainerEl.innerHTML = '';
-    thread.responses.forEach(res => {
-        const div = document.createElement('div');
-        div.className = 'res';
-        
-        const isMe = res.id === "MY_ID"; 
-        const nameStyle = isMe ? "color:blue;" : "";
-
-        div.innerHTML = `
-            <div class="res-header">
-                <span class="res-number">${res.number}</span> ：
-                <span class="res-name" style="${nameStyle}">${escapeHtml(res.name)}</span>：
-                <span class="res-date">2026/01/01(木)</span>
-                <span class="res-id">ID:${res.id}</span>
-            </div>
-            <div class="res-body">${escapeHtml(res.body).replace(/\n/g, '<br>')}</div>
-        `;
-        resContainerEl.appendChild(div);
-    });
+    thread.responses.forEach(res => appendResToDom(res));
 }
 
-// --- 新着スレ自動生成（新機能） ---
-async function generateNewThreads() {
+function appendResToDom(res) {
+    const div = document.createElement('div');
+    div.className = 'res';
+    
+    const isMe = res.id === "MY_ID"; 
+    const nameStyle = isMe ? "color:blue;" : "";
+
+    div.innerHTML = `
+        <div class="res-header">
+            <span class="res-number" data-num="${res.number}">${res.number}</span> ：
+            <span class="res-name" style="${nameStyle}">${escapeHtml(res.name)}</span>：
+            <span class="res-date">2026/01/01(木)</span>
+            <span class="res-id">ID:${res.id}</span>
+        </div>
+        <div class="res-body">${escapeHtml(res.body).replace(/\n/g, '<br>')}</div>
+    `;
+    
+    // アンカークリックイベント
+    div.querySelector('.res-number').onclick = () => {
+        const input = document.getElementById('user-res-input');
+        // 末尾に追加（B案）
+        input.value = input.value + (input.value ? " " : "") + ">>" + res.number;
+        input.focus();
+    };
+
+    resContainerEl.appendChild(div);
+}
+
+// --- AI書き込みロジック ---
+
+// 手動更新
+async function manualUpdate() {
+    await runUpdateProcess();
+}
+
+// オートモード開始
+function startAutoMode() {
+    if(isAutoMode) return;
+    isAutoMode = true;
+    autoIndicator.classList.remove('hidden');
+    document.getElementById('auto-mode-switch').checked = true;
+    
+    // 初回実行して、あとはループ
+    runUpdateProcess();
+}
+
+// オートモード停止
+function stopAutoMode() {
+    isAutoMode = false;
+    autoIndicator.classList.add('hidden');
+    document.getElementById('auto-mode-switch').checked = false;
+    if(autoTimer) clearTimeout(autoTimer);
+}
+
+// 更新プロセスの実体
+async function runUpdateProcess() {
     const key = localStorage.getItem('ai_gemini_key');
     const model = localStorage.getItem('ai_gemini_model') || "gemini-2.5-flash";
-
+    
+    // 設定値の取得
+    const resCount = localStorage.getItem('ai_config_count') || 3;
+    const toneKey = localStorage.getItem('ai_config_tone') || "mix";
+    const customPrompt = localStorage.getItem('ai_config_prompt_custom') || "";
+    
     if (!key) {
-        alert("設定からAPIキーを入れてください");
+        alert("APIキーを設定してください");
+        stopAutoMode();
         return;
     }
 
-    refreshThreadsBtn.disabled = true;
-    refreshThreadsBtn.textContent = "…"; // 読み込み中表示
+    const thread = threads.find(t => t.id === currentThreadId);
+    if(!thread) { stopAutoMode(); return; }
 
-    // AIにスレタイを考えてもらう
+    updateBtn.disabled = true;
+    updateBtn.textContent = isAutoMode ? "AUTO進行中..." : "書き込み中...";
+
+    // プロンプト組み立て
+    const toneInstruction = TONE_PRESETS[toneKey] || TONE_PRESETS["mix"];
+    const context = thread.responses.slice(-20).map(r => `${r.number}: ${r.body}`).join('\n');
+    
+    const fullPrompt = `
+あなたは5ch風掲示板の住人です。
+以下のスレッドの続きとして、レスを【${resCount}個】生成してください。
+
+【スレッド情報】
+タイトル: ${thread.title}
+現在のレス番: ${thread.responses.length}まで
+直近の流れ:
+${context}
+
+【役割・口調】
+${toneInstruction}
+
+【追加指示】
+${customPrompt}
+
+【共通ルール】
+- ユーザーからのアンカー（>>数字）がある場合は、適度に反応すること。
+- IDは適当な8文字英数。
+- 出力はJSON配列のみ。
+
+[
+  {"name": "名無し", "body": "本文", "id": "AbCdEfGh"}
+]
+    `;
+
+    // API呼び出し
+    const newResList = await fetchAiResponses(key, model, fullPrompt);
+
+    // 擬似ストリーミング表示（1つずつ表示）
+    if (newResList && newResList.length > 0) {
+        await displaySequentially(thread, newResList);
+        saveThreads();
+    }
+
+    updateBtn.disabled = false;
+    updateBtn.textContent = "更新（AI書き込み）";
+
+    // オートモードなら次を予約
+    if(isAutoMode) {
+        // 3〜5秒後に次の更新
+        autoTimer = setTimeout(runUpdateProcess, 3000 + Math.random() * 2000);
+    }
+}
+
+// 順番に表示する演出関数
+async function displaySequentially(thread, resList) {
+    let count = thread.responses.length;
+    
+    for (const item of resList) {
+        // オートモード解除などで画面が変わっていたら中断
+        if (currentThreadId !== thread.id) break;
+
+        count++;
+        const newRes = {
+            number: count,
+            name: item.name || "名無しさん",
+            body: item.body || "",
+            id: item.id || "???"
+        };
+        
+        thread.responses.push(newRes);
+        appendResToDom(newRes); // DOMに追加
+        window.scrollTo(0, document.body.scrollHeight);
+        
+        // 0.8秒待機（演出）
+        await new Promise(r => setTimeout(r, 800));
+    }
+}
+
+
+// --- 新着スレ自動生成 ---
+async function generateNewThreads() {
+    const key = localStorage.getItem('ai_gemini_key');
+    const model = localStorage.getItem('ai_gemini_model') || "gemini-2.5-flash";
+    if (!key) { alert("APIキーがありません"); return; }
+
+    refreshThreadsBtn.disabled = true;
+    refreshThreadsBtn.textContent = "…";
+
     const newThreadsData = await fetchAiThreads(key, model);
 
     if (newThreadsData && newThreadsData.length > 0) {
@@ -169,16 +288,12 @@ async function generateNewThreads() {
                     { number: 1, name: "名無しさん", body: item.firstRes || "立てたで", id: "Owner" }
                 ]
             };
-            // 先頭に追加
             threads.unshift(newThread);
         });
-
         saveThreads();
         renderThreadList();
-        // 演出：少しスクロールを戻す
         window.scrollTo(0, 0);
     }
-
     refreshThreadsBtn.disabled = false;
     refreshThreadsBtn.textContent = "🔄";
 }
@@ -200,65 +315,33 @@ function userPost() {
     });
 
     saveThreads();
-    renderResList(thread);
+    // ユーザーレスは即表示
+    appendResToDom(thread.responses[thread.responses.length - 1]);
     input.value = '';
     window.scrollTo(0, document.body.scrollHeight);
 }
 
-// --- AI書き込み ---
-async function updateThread() {
-    const key = localStorage.getItem('ai_gemini_key');
-    const model = localStorage.getItem('ai_gemini_model') || "gemini-2.5-flash";
-    const promptTemplate = localStorage.getItem('ai_gemini_prompt') || DEFAULT_PROMPT;
-
-    if (!key) { alert("APIキーがありません"); return; }
-
-    const btn = document.getElementById('update-btn');
-    const thread = threads.find(t => t.id === currentThreadId);
-    
-    btn.disabled = true;
-    btn.textContent = "書き込み中...";
-
-    const context = thread.responses.slice(-20).map(r => `${r.number}: ${r.body}`).join('\n');
-
-    const newResList = await fetchAiResponses(key, model, thread.title, thread.responses.length, context, promptTemplate);
-
-    if (newResList && newResList.length > 0) {
-        let count = thread.responses.length;
-        newResList.forEach(item => {
-            count++;
-            thread.responses.push({
-                number: count,
-                name: item.name || "名無しさん",
-                body: item.body || "",
-                id: item.id || "???"
-            });
-        });
-        saveThreads();
-        renderResList(thread);
-        window.scrollTo(0, document.body.scrollHeight);
-    }
-
-    btn.disabled = false;
-    btn.textContent = "更新（AI書き込み）";
-}
-
+// --- スレ立て（本文対応） ---
 function createThread() {
     const titleInput = document.getElementById('new-thread-title');
+    const bodyInput = document.getElementById('new-thread-body');
     const title = titleInput.value.trim();
+    const body = bodyInput.value.trim() || "よろしく";
+    
     if (!title) return;
 
     const newThread = {
         id: Date.now().toString(),
         title: title,
         responses: [
-            { number: 1, name: "名無しさん", body: "お願いします。", id: "Owner" }
+            { number: 1, name: "名無しさん", body: body, id: "Owner" }
         ]
     };
 
     threads.unshift(newThread);
     saveThreads();
     titleInput.value = '';
+    bodyInput.value = '';
     closeModal('modal-create');
     renderThreadList();
 }
@@ -267,21 +350,60 @@ function saveThreads() {
     localStorage.setItem('ai_threads', JSON.stringify(threads));
 }
 
+// --- 設定関連 ---
 function saveSettings() {
     const key = document.getElementById('api-key-input').value.trim();
-    const model = document.getElementById('model-input').value.trim();
-    const prompt = document.getElementById('prompt-input').value;
+    const model = document.getElementById('model-select').value;
+    const resCount = document.getElementById('res-count-slider').value;
+    const tone = document.getElementById('tone-select').value;
+    const customPrompt = document.getElementById('custom-prompt-input').value;
     
     localStorage.setItem('ai_gemini_key', key);
     localStorage.setItem('ai_gemini_model', model);
-    localStorage.setItem('ai_gemini_prompt', prompt);
+    localStorage.setItem('ai_config_count', resCount);
+    localStorage.setItem('ai_config_tone', tone);
+    localStorage.setItem('ai_config_prompt_custom', customPrompt);
     
     closeModal('modal-settings');
     alert("設定を保存しました");
 }
 
+function loadSettings() {
+    const key = localStorage.getItem('ai_gemini_key');
+    if (key) document.getElementById('api-key-input').value = key;
+
+    const model = localStorage.getItem('ai_gemini_model');
+    if (model) document.getElementById('model-select').value = model;
+
+    const count = localStorage.getItem('ai_config_count');
+    if (count) {
+        document.getElementById('res-count-slider').value = count;
+        document.getElementById('res-count-display').textContent = count;
+    }
+
+    const tone = localStorage.getItem('ai_config_tone');
+    if (tone) document.getElementById('tone-select').value = tone;
+
+    const custom = localStorage.getItem('ai_config_prompt_custom');
+    if (custom) document.getElementById('custom-prompt-input').value = custom;
+
+    // AAモード
+    const isAA = localStorage.getItem('ai_config_aa_mode') === 'true';
+    document.getElementById('aa-mode-switch').checked = isAA;
+    toggleAAMode(isAA);
+}
+
+function toggleAAMode(isAA) {
+    if (isAA) {
+        document.body.classList.add('aa-font');
+    } else {
+        document.body.classList.remove('aa-font');
+    }
+    localStorage.setItem('ai_config_aa_mode', isAA);
+}
+
 function clearData() {
-    if(confirm("スレッドを全消去しますか？")) {
+    if(confirm("全スレッドを消去しますか？")) {
         localStorage.removeItem('ai_threads');
         threads = [];
         renderThreadList();
