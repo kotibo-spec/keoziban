@@ -35,7 +35,7 @@ function init() {
     document.getElementById('do-create-thread-btn').onclick = createThread;
     document.getElementById('cancel-create-btn').onclick = () => closeModal('modal-create');
     
-    updateBtn.onclick = updateThread;
+    updateBtn.onclick = updateThread; // 単発実行のみ
     document.getElementById('back-btn').onclick = showThreadList;
     document.getElementById('clear-data-btn').onclick = clearData;
     document.getElementById('user-post-btn').onclick = userPost;
@@ -44,7 +44,7 @@ function init() {
     document.getElementById('res-count-slider').oninput = (e) => {
         document.getElementById('res-count-display').textContent = e.target.value;
     };
-
+    
     document.getElementById('aa-mode-switch').onchange = (e) => toggleAAMode(e.target.checked);
 
     document.getElementById('reload-app-btn').onclick = () => {
@@ -121,7 +121,7 @@ function appendResToDom(res) {
     resContainerEl.appendChild(div);
 }
 
-// --- AI書き込みロジック (シンプル化) ---
+// --- AI書き込みロジック（手動のみ） ---
 async function updateThread() {
     const key = localStorage.getItem('ai_gemini_key');
     const model = localStorage.getItem('ai_gemini_model') || "gemini-2.5-flash";
@@ -135,13 +135,13 @@ async function updateThread() {
     if (!thread) return;
 
     updateBtn.disabled = true;
-    updateBtn.textContent = "書き込み中...";
+    updateBtn.textContent = "考え中...";
 
-    // プロンプト作成
-    const toneInstruction = TONE_PRESETS[toneKey] || TONE_PRESETS["mix"];
-    const context = thread.responses.slice(-20).map(r => `${r.number}: ${r.body}`).join('\n');
-    
-    const fullPrompt = `
+    try {
+        const toneInstruction = TONE_PRESETS[toneKey] || TONE_PRESETS["mix"];
+        const context = thread.responses.slice(-20).map(r => `${r.number}: ${r.body}`).join('\n');
+        
+        const fullPrompt = `
 あなたは5ch風掲示板の住人です。
 以下のスレッドの続きとして、レスを【${resCount}個】生成してください。
 
@@ -162,28 +162,32 @@ ${customPrompt}
 - IDは適当な8文字英数。
 - JSON配列のみ出力。
 [ {"name": "名無し", "body": "本文", "id": "AbCdEfGh"} ]
-    `;
+        `;
 
-    // API呼び出し
-    const newResList = await fetchAiResponses(key, model, fullPrompt);
+        // API呼び出し
+        const newResList = await fetchAiResponses(key, model, fullPrompt);
 
-    // 成功したら擬似ストリーミング表示
-    if (newResList && newResList.length > 0) {
-        await displaySequentially(thread, newResList);
-        saveThreads();
+        // 成功したらストリーミング演出で表示
+        if (newResList && newResList.length > 0) {
+            updateBtn.textContent = "書き込み中...";
+            await displaySequentially(thread, newResList);
+            saveThreads();
+        }
+
+    } catch (e) {
+        console.error(e);
+        // エラーアラートはgemini.js側で出すのでここでは何もしない
+    } finally {
+        updateBtn.disabled = false;
+        updateBtn.textContent = "更新（AI書き込み）";
     }
-
-    updateBtn.disabled = false;
-    updateBtn.textContent = "更新（AI書き込み）";
 }
 
-// 順番に表示する演出関数（これは残す）
+// 順番に表示する演出関数（擬似ストリーミング）
 async function displaySequentially(thread, resList) {
     let count = thread.responses.length;
     for (const item of resList) {
-        // 画面移動してたら中断
         if (currentThreadId !== thread.id) break;
-        
         count++;
         const newRes = {
             number: count,
