@@ -1,10 +1,11 @@
 /**
  * スレッドのレスを生成する
  */
-export async function fetchAiResponses(apiKey, model, fullPrompt) {
+export async function fetchAiResponses(apiKey, model, promptText) {
     const targetModel = model || "gemini-2.5-flash";
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${targetModel}:generateContent?key=${apiKey}`;
-    return await callGemini(url, fullPrompt);
+
+    return await callGemini(url, promptText);
 }
 
 /**
@@ -17,13 +18,18 @@ export async function fetchAiThreads(apiKey, model) {
     const prompt = `
 あなたは日本の掲示板「5ch」の住人です。
 今、話題になりそうな、あるいは面白いスレッドのタイトルを「3つ」考えてください。
-ジャンルはバラバラにすること。Markdown記号禁止。JSON配列のみ。
+ジャンルはバラバラにすること（ニュース、雑談、ネタ、相談、オカルトなど混ぜて）。
+
+【出力フォーマット】
+以下のJSON配列形式のみで出力してください。Markdown記号は禁止。
+
 [
   {"title": "【悲報】ワイの夕飯、とんでもないことになる", "firstRes": "画像貼るからちょっと待ってろ"},
   {"title": "AIが発達した結果ｗｗｗｗｗ", "firstRes": "仕事なくなったわ"},
   {"title": "近所の廃墟に行ってきたけど質問ある？", "firstRes": "なんかガチでやばいもん見たかもしれん"}
 ]
     `;
+
     return await callGemini(url, prompt);
 }
 
@@ -56,9 +62,9 @@ async function callGemini(url, promptText) {
 
         const data = await response.json();
         
-        if (!data.candidates || !data.candidates.length) throw new Error("AIが回答を拒否しました");
+        if (!data.candidates || data.candidates.length === 0) throw new Error("AIが回答を拒否しました");
         const candidate = data.candidates[0];
-        if (!candidate.content || !candidate.content.parts) throw new Error("AI応答が空でした");
+        if (!candidate.content || !candidate.content.parts || !candidate.content.parts[0].text) throw new Error("AI応答が空でした");
 
         let text = candidate.content.parts[0].text;
         text = text.replace(/```json/g, '').replace(/```/g, '').trim();
@@ -66,9 +72,8 @@ async function callGemini(url, promptText) {
         return JSON.parse(text);
 
     } catch (e) {
-        console.error("Gemini通信エラー:", e);
-        // 手動更新なのでエラーを通知する
-        alert("エラーが発生しました:\n" + e.message);
+        console.error(e);
+        alert("エラー: " + e.message);
         return [];
     }
 }
