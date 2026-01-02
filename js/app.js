@@ -4,13 +4,14 @@ import { fetchAiResponses, fetchAiThreads } from './gemini.js';
 let threads = JSON.parse(localStorage.getItem('ai_threads')) || [];
 let currentThreadId = null;
 
-// --- 雰囲気定義 ---
-const TONE_PRESETS = {
-    "mix": "なんJ、VIP、ニュース、専門板の住人がごちゃ混ぜ。丁寧語禁止。煽り、ネタ、真面目なレスが混在するカオスな状態。",
-    "nanj": "全員「なんJ」民。猛虎弁（〜やで、〜ンゴ、ワイ）を使用。実況風の勢い重視。プロ野球ネタや煽りが多い。",
-    "vip": "全員「VIP」民。うはｗｗｗおｋｗｗｗなどの古いネットスラングや短文を使用。クオリティの低い煽り合い。",
-    "news": "全員「ニュース速報」民。〜だろ常識的に考えて、ソースは？など、理屈っぽく批判的で斜に構えた態度。",
-    "gal": "女性向け掲示板風。〜だよね、〜しなよ。表向きは共感しているが裏でマウントを取り合うようなピリピリした雰囲気。"
+// ロール（雰囲気）の定義
+const PERSONAS = {
+    "mix": "あなたは「5ch」の様々な住人（猛虎弁、VIPPER、冷静な批判屋、無気力な人など）になりきってください。全員の口調を統一せず、カオスなごちゃ混ぜ状態にしてください。",
+    "nanj": "あなたは「なんでも実況J（なんJ）」の住人になりきってください。猛虎弁（～やで、～ンゴ、ワイ）を多用し、勢いのある会話をしてください。",
+    "vip": "あなたは「VIP板」の住人になりきってください。「うはｗｗｗおｋｗｗｗ」「～だお」など、少し古めのネットスラングや軽いノリで会話してください。",
+    "news": "あなたは「ニュース速報＋」の住人になりきってください。社会に対して批判的、皮肉屋、理屈っぽい口調（～だろ常識的に、ソースは？）で会話してください。",
+    "gal": "あなたは「女性向け掲示板」の住人になりきってください。「～だよね」「わかる」「それな」など、共感を重視した口調で会話してください。",
+    "gentle": "あなたは非常に穏やかな掲示板の住人になりきってください。敬語や丁寧語を使い、争いのない平和な会話を心がけてください。"
 };
 
 // --- DOM要素 ---
@@ -26,8 +27,8 @@ const updateBtn = document.getElementById('update-btn');
 // --- 初期化 ---
 function init() {
     renderThreadList();
-    loadSettings();
     
+    // イベント設定
     document.getElementById('settings-btn').onclick = () => showModal('modal-settings');
     document.getElementById('save-settings-btn').onclick = saveSettings;
     
@@ -35,21 +36,42 @@ function init() {
     document.getElementById('do-create-thread-btn').onclick = createThread;
     document.getElementById('cancel-create-btn').onclick = () => closeModal('modal-create');
     
-    updateBtn.onclick = updateThread; // 単発実行のみ
+    updateBtn.onclick = updateThread;
     document.getElementById('back-btn').onclick = showThreadList;
     document.getElementById('clear-data-btn').onclick = clearData;
     document.getElementById('user-post-btn').onclick = userPost;
     refreshThreadsBtn.onclick = generateNewThreads;
     
-    document.getElementById('res-count-slider').oninput = (e) => {
-        document.getElementById('res-count-display').textContent = e.target.value;
-    };
-    
-    document.getElementById('aa-mode-switch').onchange = (e) => toggleAAMode(e.target.checked);
-
     document.getElementById('reload-app-btn').onclick = () => {
         if(confirm("画面をリロードしますか？")) window.location.reload(true);
     };
+
+    // スライダーの数値表示更新
+    const slider = document.getElementById('res-count-slider');
+    const display = document.getElementById('res-count-display');
+    slider.oninput = () => { display.textContent = slider.value; };
+
+    // 設定読み込み
+    loadSettings();
+}
+
+function loadSettings() {
+    const key = localStorage.getItem('ai_gemini_key');
+    if (key) document.getElementById('api-key-input').value = key;
+    
+    const model = localStorage.getItem('ai_gemini_model');
+    document.getElementById('model-input').value = model || "gemini-2.5-flash";
+
+    // 細分化された設定の読み込み
+    const count = localStorage.getItem('ai_res_count') || "3";
+    document.getElementById('res-count-slider').value = count;
+    document.getElementById('res-count-display').textContent = count;
+
+    const persona = localStorage.getItem('ai_persona') || "mix";
+    document.getElementById('persona-select').value = persona;
+
+    const extra = localStorage.getItem('ai_extra_prompt') || "";
+    document.getElementById('extra-prompt-input').value = extra;
 }
 
 // --- 画面遷移 ---
@@ -92,10 +114,13 @@ function renderThreadList() {
 
 function renderResList(thread) {
     resContainerEl.innerHTML = '';
-    thread.responses.forEach(res => appendResToDom(res));
+    thread.responses.forEach(res => {
+        addResElementToDom(res);
+    });
 }
 
-function appendResToDom(res) {
+// 1つのレスをDOMに追加する処理
+function addResElementToDom(res) {
     const div = document.createElement('div');
     div.className = 'res';
     
@@ -112,8 +137,10 @@ function appendResToDom(res) {
         <div class="res-body">${escapeHtml(res.body).replace(/\n/g, '<br>')}</div>
     `;
     
+    // アンカークリックイベント
     div.querySelector('.res-number').onclick = () => {
         const input = document.getElementById('user-res-input');
+        // 末尾に " >>レス番" を追加
         input.value = input.value + (input.value ? " " : "") + ">>" + res.number;
         input.focus();
     };
@@ -121,89 +148,91 @@ function appendResToDom(res) {
     resContainerEl.appendChild(div);
 }
 
-// --- AI書き込みロジック（手動のみ） ---
-async function updateThread() {
-    const key = localStorage.getItem('ai_gemini_key');
-    const model = localStorage.getItem('ai_gemini_model') || "gemini-2.5-flash";
-    const resCount = localStorage.getItem('ai_config_count') || 3;
-    const toneKey = localStorage.getItem('ai_config_tone') || "mix";
-    const customPrompt = localStorage.getItem('ai_config_prompt_custom') || "";
+// --- プロンプト構築ロジック ---
+function buildPrompt(title, resCount, context) {
+    const countSetting = document.getElementById('res-count-slider').value;
+    const personaKey = document.getElementById('persona-select').value;
+    const extraPrompt = document.getElementById('extra-prompt-input').value;
 
-    if (!key) { alert("APIキーを設定してください"); return; }
+    const personaText = PERSONAS[personaKey] || PERSONAS["mix"];
 
-    const thread = threads.find(t => t.id === currentThreadId);
-    if (!thread) return;
+    return `
+${personaText}
+【追加の指示】
+${extraPrompt}
 
-    updateBtn.disabled = true;
-    updateBtn.textContent = "考え中...";
-
-    try {
-        const toneInstruction = TONE_PRESETS[toneKey] || TONE_PRESETS["mix"];
-        const context = thread.responses.slice(-20).map(r => `${r.number}: ${r.body}`).join('\n');
-        
-        const fullPrompt = `
-あなたは5ch風掲示板の住人です。
-以下のスレッドの続きとして、レスを【${resCount}個】生成してください。
+以下のスレッドの続きとして、新しいレスを【${countSetting}個】生成してください。
 
 【スレッド情報】
-タイトル: ${thread.title}
-現在のレス番: ${thread.responses.length}まで
+タイトル: ${title}
+現在のレス番: ${resCount}まで
 直近の流れ:
 ${context}
 
-【役割・口調】
-${toneInstruction}
-
-【追加指示】
-${customPrompt}
-
 【ルール】
-- ユーザーからのアンカー（>>数字）がある場合は適度に反応すること。
-- IDは適当な8文字英数。
-- JSON配列のみ出力。
-[ {"name": "名無し", "body": "本文", "id": "AbCdEfGh"} ]
-        `;
+- ユーザーからのアンカー（>>数字）がある場合は、適度に反応すること。
+- IDは適当な8文字英数（ワッチョイ風）。
+- 出力はJSON配列のみ。Markdown禁止。
 
-        // API呼び出し
-        const newResList = await fetchAiResponses(key, model, fullPrompt);
-
-        // 成功したらストリーミング演出で表示
-        if (newResList && newResList.length > 0) {
-            updateBtn.textContent = "書き込み中...";
-            await displaySequentially(thread, newResList);
-            saveThreads();
-        }
-
-    } catch (e) {
-        console.error(e);
-        // エラーアラートはgemini.js側で出すのでここでは何もしない
-    } finally {
-        updateBtn.disabled = false;
-        updateBtn.textContent = "更新（AI書き込み）";
-    }
+【出力例】
+[
+  {"name": "名無しさん", "body": "これマジ？", "id": "AbCdEfGh"},
+  {"name": "風吹けば名無し", "body": ">>${resCount} 乙ｗｗｗ", "id": "XyZ12345"}
+]
+    `;
 }
 
-// 順番に表示する演出関数（擬似ストリーミング）
-async function displaySequentially(thread, resList) {
-    let count = thread.responses.length;
-    for (const item of resList) {
-        if (currentThreadId !== thread.id) break;
-        count++;
-        const newRes = {
-            number: count,
-            name: item.name || "名無しさん",
-            body: item.body || "",
-            id: item.id || "???"
-        };
-        thread.responses.push(newRes);
-        appendResToDom(newRes);
-        window.scrollTo(0, document.body.scrollHeight);
+// --- AI書き込み（擬似ストリーミング対応） ---
+async function updateThread() {
+    const key = localStorage.getItem('ai_gemini_key');
+    const model = localStorage.getItem('ai_gemini_model') || "gemini-2.5-flash";
+
+    if (!key) { alert("APIキーがありません"); return; }
+
+    const thread = threads.find(t => t.id === currentThreadId);
+    
+    updateBtn.disabled = true;
+    updateBtn.textContent = "AI思考中...";
+
+    const context = thread.responses.slice(-20).map(r => `${r.number}: ${r.body}`).join('\n');
+    
+    // プロンプトを組み立てる
+    const prompt = buildPrompt(thread.title, thread.responses.length, context);
+
+    // AI呼び出し
+    const newResList = await fetchAiResponses(key, model, prompt);
+
+    if (newResList && newResList.length > 0) {
+        // ★擬似ストリーミング処理★
+        updateBtn.textContent = "書き込み中...";
         
-        // 0.8秒待機（演出）
-        await new Promise(r => setTimeout(r, 800));
-    }
-}
+        let count = thread.responses.length;
+        
+        for (const item of newResList) {
+            // 0.8秒待機（演出）
+            await new Promise(r => setTimeout(r, 800));
 
+            count++;
+            const newRes = {
+                number: count,
+                name: item.name || "名無しさん",
+                body: item.body || "",
+                id: item.id || "???"
+            };
+
+            // データ追加
+            thread.responses.push(newRes);
+            saveThreads();
+            
+            // 画面に追加してスクロール
+            addResElementToDom(newRes);
+            window.scrollTo(0, document.body.scrollHeight);
+        }
+    }
+
+    updateBtn.disabled = false;
+    updateBtn.textContent = "更新（AI書き込み）";
+}
 
 // --- 新着スレ自動生成 ---
 async function generateNewThreads() {
@@ -235,6 +264,7 @@ async function generateNewThreads() {
     refreshThreadsBtn.textContent = "🔄";
 }
 
+// --- ユーザー書き込み ---
 function userPost() {
     const input = document.getElementById('user-res-input');
     const body = input.value.trim();
@@ -251,17 +281,19 @@ function userPost() {
     });
 
     saveThreads();
-    appendResToDom(thread.responses[thread.responses.length - 1]);
+    // DOMに直接追加（全再描画しない）
+    addResElementToDom(thread.responses[thread.responses.length - 1]);
     input.value = '';
     window.scrollTo(0, document.body.scrollHeight);
 }
 
+// --- スレッド作成（本文対応） ---
 function createThread() {
     const titleInput = document.getElementById('new-thread-title');
     const bodyInput = document.getElementById('new-thread-body');
     const title = titleInput.value.trim();
-    const body = bodyInput.value.trim() || "よろしく";
-    
+    const body = bodyInput.value.trim() || "立てたで。";
+
     if (!title) return;
 
     const newThread = {
@@ -280,52 +312,26 @@ function createThread() {
     renderThreadList();
 }
 
-function saveThreads() { localStorage.setItem('ai_threads', JSON.stringify(threads)); }
-
+// --- 設定保存 ---
 function saveSettings() {
     const key = document.getElementById('api-key-input').value.trim();
-    const model = document.getElementById('model-select').value;
-    const resCount = document.getElementById('res-count-slider').value;
-    const tone = document.getElementById('tone-select').value;
-    const customPrompt = document.getElementById('custom-prompt-input').value;
+    const model = document.getElementById('model-input').value.trim();
+    const count = document.getElementById('res-count-slider').value;
+    const persona = document.getElementById('persona-select').value;
+    const extra = document.getElementById('extra-prompt-input').value;
     
     localStorage.setItem('ai_gemini_key', key);
     localStorage.setItem('ai_gemini_model', model);
-    localStorage.setItem('ai_config_count', resCount);
-    localStorage.setItem('ai_config_tone', tone);
-    localStorage.setItem('ai_config_prompt_custom', customPrompt);
+    localStorage.setItem('ai_res_count', count);
+    localStorage.setItem('ai_persona', persona);
+    localStorage.setItem('ai_extra_prompt', extra);
     
     closeModal('modal-settings');
     alert("設定を保存しました");
 }
 
-function loadSettings() {
-    const key = localStorage.getItem('ai_gemini_key');
-    if (key) document.getElementById('api-key-input').value = key;
-    const model = localStorage.getItem('ai_gemini_model');
-    if (model) document.getElementById('model-select').value = model;
-    const count = localStorage.getItem('ai_config_count');
-    if (count) {
-        document.getElementById('res-count-slider').value = count;
-        document.getElementById('res-count-display').textContent = count;
-    }
-    const tone = localStorage.getItem('ai_config_tone');
-    if (tone) document.getElementById('tone-select').value = tone;
-    const custom = localStorage.getItem('ai_config_prompt_custom');
-    if (custom) document.getElementById('custom-prompt-input').value = custom;
-    const isAA = localStorage.getItem('ai_config_aa_mode') === 'true';
-    document.getElementById('aa-mode-switch').checked = isAA;
-    toggleAAMode(isAA);
-}
-
-function toggleAAMode(isAA) {
-    if (isAA) document.body.classList.add('aa-font');
-    else document.body.classList.remove('aa-font');
-    localStorage.setItem('ai_config_aa_mode', isAA);
-}
-
 function clearData() {
-    if(confirm("全スレッドを消去しますか？")) {
+    if(confirm("スレッドを全消去しますか？")) {
         localStorage.removeItem('ai_threads');
         threads = [];
         renderThreadList();
