@@ -4,6 +4,34 @@ import { fetchAiResponses } from './gemini.js';
 let threads = JSON.parse(localStorage.getItem('ai_threads')) || [];
 let currentThreadId = null;
 
+// デフォルトのプロンプト（ここを変更すると初期値が変わります）
+const DEFAULT_PROMPT = `
+あなたは匿名掲示板「5ch」のなんでも実況J（なんJ）の住人になりきってください。
+以下のスレッドの続きとして、新しいレスを1〜10個ランダムに生成してください。
+
+【スレッド情報】
+タイトル: {{TITLE}}
+現在のレス番: {{RES_COUNT}}まで
+直近の流れ:
+{{CONTEXT}}
+
+【行動指針】
+- 名前は基本「風吹けば名無し」
+- 口調は猛虎弁（〜やで、〜やん、ワイ、せやな）やネットスラングを多用する。
+- 全員が会話に参加しなくていい。独り言、唐突な自分語り、煽り合いなど、カオスな状態にする。
+- 直近のレス（ユーザーの書き込み含む）にアンカー（>>数字）がついている場合、それに反応して煽ったり同意したりすること。
+- ただし、全てのレスがアンカー付きの会話になってはいけない。半分くらいは独り言や無視すること。
+- IDは適当な8文字程度の英数文字列（ワッチョイ風）。
+
+【重要：出力形式】
+必ず以下のJSON形式の配列のみを出力してください。Markdown記号や余計な解説は禁止。
+
+[
+  {"name": "風吹けば名無し", "body": "せやな", "id": "A1b2C3d4"},
+  {"name": "風吹けば名無し", "body": ">>{{RES_COUNT}} 嘘乙", "id": "X9z8Y7w6"}
+]
+`;
+
 // --- DOM要素 ---
 const viewList = document.getElementById('view-thread-list');
 const viewDetail = document.getElementById('view-thread-detail');
@@ -25,26 +53,25 @@ function init() {
     document.getElementById('update-btn').onclick = updateThread;
     document.getElementById('back-btn').onclick = showThreadList;
     document.getElementById('clear-data-btn').onclick = clearData;
+    document.getElementById('user-post-btn').onclick = userPost; // 自分の書き込み
+    document.getElementById('reset-prompt-btn').onclick = () => {
+        document.getElementById('prompt-input').value = DEFAULT_PROMPT;
+    };
     
-    // アプリ更新（リロード）ボタン
     document.getElementById('reload-app-btn').onclick = () => {
-        if(confirm("画面を再読み込みして最新の状態にしますか？")) {
-            // キャッシュを無視してリロード
-            window.location.reload(true);
-        }
+        if(confirm("画面を再読み込みして最新の状態にしますか？")) window.location.reload(true);
     };
     
     // 設定読み込み
     const key = localStorage.getItem('ai_gemini_key');
     if (key) document.getElementById('api-key-input').value = key;
 
-    // モデル読み込み（デフォルトは 2.5-flash にしておきます）
     const model = localStorage.getItem('ai_gemini_model');
-    if (model) {
-        document.getElementById('model-input').value = model;
-    } else {
-        document.getElementById('model-input').value = "gemini-2.5-flash";
-    }
+    document.getElementById('model-input').value = model || "gemini-2.5-flash";
+
+    // プロンプト読み込み
+    const savedPrompt = localStorage.getItem('ai_gemini_prompt');
+    document.getElementById('prompt-input').value = savedPrompt || DEFAULT_PROMPT;
 }
 
 // --- 画面遷移 ---
@@ -88,10 +115,15 @@ function renderResList(thread) {
     thread.responses.forEach(res => {
         const div = document.createElement('div');
         div.className = 'res';
+        
+        // 自分のレスかどうかで色を変えるなどしてもよい
+        const isMe = res.id === "MY_ID"; 
+        const nameStyle = isMe ? "color:blue;" : "";
+
         div.innerHTML = `
             <div class="res-header">
                 <span class="res-number">${res.number}</span> ：
-                <span class="res-name">${escapeHtml(res.name)}</span>：
+                <span class="res-name" style="${nameStyle}">${escapeHtml(res.name)}</span>：
                 <span class="res-date">2026/01/01(木)</span>
                 <span class="res-id">ID:${res.id}</span>
             </div>
@@ -101,11 +133,35 @@ function renderResList(thread) {
     });
 }
 
-// --- アクション ---
+// --- ユーザーの書き込み ---
+function userPost() {
+    const input = document.getElementById('user-res-input');
+    const body = input.value.trim();
+    if (!body) return;
+    
+    const thread = threads.find(t => t.id === currentThreadId);
+    if (!thread) return;
+
+    // ユーザーのレスを追加
+    thread.responses.push({
+        number: thread.responses.length + 1,
+        name: "自分", // 名前を変えたければここ
+        body: body,
+        id: "MY_ID"
+    });
+
+    saveThreads();
+    renderResList(thread);
+    input.value = '';
+    window.scrollTo(0, document.body.scrollHeight);
+}
+
+// --- AI書き込み ---
 async function updateThread() {
     const key = localStorage.getItem('ai_gemini_key');
-    // 設定がなければデフォルトを使う
     const model = localStorage.getItem('ai_gemini_model') || "gemini-2.5-flash";
+    // 保存されたプロンプトを使う。なければデフォルト
+    const promptTemplate = localStorage.getItem('ai_gemini_prompt') || DEFAULT_PROMPT;
 
     if (!key) {
         alert("設定ボタンからAPIキーを設定してください！");
@@ -118,10 +174,11 @@ async function updateThread() {
     btn.disabled = true;
     btn.textContent = "書き込み中...";
 
-    const context = thread.responses.slice(-15).map(r => `${r.number}: ${r.body}`).join('\n');
+    // 文脈：直近20レスくらい渡す（自分のレスも含まれる）
+    const context = thread.responses.slice(-20).map(r => `${r.number}: ${r.body}`).join('\n');
 
-    // 引数にmodelを追加して渡す
-    const newResList = await fetchAiResponses(key, model, thread.title, thread.responses.length, context);
+    // API呼び出し（プロンプトテンプレートも渡す）
+    const newResList = await fetchAiResponses(key, model, thread.title, thread.responses.length, context, promptTemplate);
 
     if (newResList && newResList.length > 0) {
         let count = thread.responses.length;
@@ -171,12 +228,14 @@ function saveThreads() {
 function saveSettings() {
     const key = document.getElementById('api-key-input').value.trim();
     const model = document.getElementById('model-input').value.trim();
+    const prompt = document.getElementById('prompt-input').value; // プロンプト保存
     
     localStorage.setItem('ai_gemini_key', key);
     localStorage.setItem('ai_gemini_model', model);
+    localStorage.setItem('ai_gemini_prompt', prompt);
     
     closeModal('modal-settings');
-    alert("設定を保存しました。\n使用モデル: " + model);
+    alert("設定を保存しました。\n次回更新からこのプロンプトが使われます。");
 }
 
 function clearData() {
@@ -188,7 +247,6 @@ function clearData() {
     }
 }
 
-// --- ユーティリティ ---
 function showModal(id) { document.getElementById(id).classList.remove('hidden'); }
 function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
 function escapeHtml(str) {
